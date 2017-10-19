@@ -1,11 +1,31 @@
 import numpy as np
 import tensorflow as tf
 
-def init_param(shape):
+max_angle = np.pi / 3.
+angle_spreading = 1
+max_folded_length = 5
+folded_length_spreading = 1
+n_units = 5
+n_params = 5
+n_points = 10
+R = 10
+L_init = 3
+initial_angle = np.pi / 3.
 
-    initial = tf.random_normal(shape, stddev=0.1)
-    return tf.Variable(initial)
+def normalize( x, min_value, max_value, spreading):
+    mean_tensor = tf.constant( (max_value-min_value) / 2. , tf.float32)
+    ampl = (max_value+min_value) / 2.
+    x_spread = tf.scalar_mul(spreading, x)
+    x_normalized = tf.erf(x_spread)
+    x_normalized2 = mean_tensor + tf.scalar_mul(ampl_tensor, x_normalized)
+    return x_normalized2
 
+def init_param(n_params, n_points):
+    # lambda, gamma, delta, mu, l
+    params = tf.Variable( tf.random_normal([n_params-1, n_points]) )
+    L = tf.Variable( tf.random_normal( [1, n_points] ) )
+
+    return [tf.Variable(params), tf.Variable(L)]
 
 def compute_dist(vec):
 
@@ -13,9 +33,20 @@ def compute_dist(vec):
     sumsquare = tf.reduce_sum( square, axis=1 )
     return tf.sqrt(sumsquare)
 
-def unit_output(parameters, origin):
+def unit_output(parameters, folded_length1_, folded_length2_, origin):
 
-    a, b, c, d, gamma, delta = tf.slice(parameters, [1, 1, 1, 1, 1, 1], axis=1)
+    u_, v_, gamma_, delta_ = tf.slice(parameters, [1, 1, 1, 1, 1, 1], axis=1)
+    u = normalize( u_, 0, 1, 1 )
+    v = normalize( v_, 0, 1, 1 )
+    gamma = normalize( gamma_, -max_angle, max_angle, angle_spreading )
+    delta = normalize( delta_, -max_angle, max_angle, angle_spreading )
+    folded_length1 = normalize( folded_length1_, 0, max_folded_length, folded_length_spreading )
+    folded_length2 = normalize( folded_length2_, 0, max_folded_length, folded_length_spreading )
+
+    a = u*folded_length1
+    b = (1-u)*folded_length1
+    c = v*folded_length1
+    d = (1-v)*folded_length1
 
     A0, B0 = tf.split(origin, [2, 2], axis=1)
     vecAB = B-A
@@ -41,15 +72,10 @@ def unit_output(parameters, origin):
 
     return tf.concat( [OD_x0, OD_y0, OC_x0, OC_y0], axis=1 )
 
-
-n_units = 5
-n_points = 10
-R = 1
-initial_angle = np.pi / 3.
-
 sess = tf.InteractiveSession()
 
-units = []
+coords = []
+folded_length = []
 parameters = []
 
 output_initial_location = tf.constant( (R*cos(initial_angle), R*cos(initial_angle)), tf.float32 )
@@ -58,11 +84,13 @@ output_radius = tf.constant( R, tf.float32 )
 B_input = tf.placeholder(tf.float32, shape=[n_points, 2])
 A_input = tf.zeros(shape=[n_points, 2])
 
-units[0] = tf.concat( [B_input, A_input], axis=1 )
+
+coords[0] = tf.concat( [B_input, A_input], axis=1 )
+folded_length[0],
 
 for i in range(n_units):
 
-    parameters[i] = init_param([6])
+    parameters[i], L[i] = init_param(n_params, n_points)
     units[i+1] = unit_output(parameters[i],units[i])
 
 loss = tf.losses.mean_squared_error( units[n_units], output_target )
