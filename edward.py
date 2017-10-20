@@ -3,11 +3,11 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-max_angle = np.pi / 10.
+max_angle = np.pi / 100.
 max_folded_length = 5
 n_units = 5
 n_params = 5
-n_points = 100
+n_points = 1
 L_init = 3
 
 def normalize( x, min_value, max_value, spreading):
@@ -101,7 +101,7 @@ for i in range(n_units):
 
     parameters[i], folded_length[i+1] = init_param(n_params)
     temp_debug[i], geom[i], coords[i+1], middle_point[i] = \
-        unit_output(parameters[i], folded_length[i+1], folded_length[i], coords[i] )
+        unit_output(parameters[i], folded_length[i], folded_length[i+1], coords[i] )
 
 output, _ = tf.split( coords[n_units], [2, 2], axis=1 )
 loss = tf.losses.mean_squared_error( output_target, output )
@@ -111,9 +111,9 @@ tf.global_variables_initializer().run()
 def test():
 
     A_input_ = np.array( [ [0, 0] ], dtype=np.float32 )
-    B_input_ = np.array( [ [1, 1] ], dtype=np.float32 )
+    B_input_ = np.array( [ [0, 1] ], dtype=np.float32 )
     for i in range(n_units):
-        temp_param = tf.constant( [0, 0, 0, 0], dtype=tf.float32, shape=(4,1) )
+        temp_param = tf.constant( [0.5, 0.5, 0, 0], dtype=tf.float32, shape=(4,1) )
         temp_folded_length =  tf.constant( [3], dtype=tf.float32, shape=(1,1) )
         #sess.run(tf.assign( parameters[i], temp_param ))
         #sess.run(tf.assign( folded_length[i+1], temp_folded_length ))
@@ -131,7 +131,7 @@ def test_animate():
     A_input_ = np.array( [ [0, 0], [0, 0], [0, 0], [0, 0], [0, 0] ], dtype=np.float32 )
     B_input_ = np.array( [ [0, 1.25], [0, 1.5], [0, 1.75], [0, 2], [0, 2.25] ], dtype=np.float32 )
     for i in range(n_units):
-        temp_param = tf.constant( [0.1, -0.2, 0, 0], dtype=tf.float32, shape=(4,1) )
+        temp_param = tf.constant( [0.5, 0.5, 0, 0], dtype=tf.float32, shape=(4,1) )
         temp_folded_length =  tf.constant( [3], dtype=tf.float32, shape=(1,1) )
         sess.run(tf.assign( parameters[i], temp_param ))
         sess.run(tf.assign( folded_length[i+1], temp_folded_length ))
@@ -245,4 +245,4 @@ def animate_result():
     plt.show()
 
 
-animate_result()
+test()
