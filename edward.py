@@ -1,5 +1,7 @@
 import numpy as np
 import tensorflow as tf
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 
 max_angle = np.pi / 3.
 angle_spreading = 1
@@ -7,7 +9,7 @@ max_folded_length = 5
 folded_length_spreading = 1
 n_units = 5
 n_params = 5
-n_points = 1
+n_points = 5
 R = 10
 L_init = 3
 initial_angle = np.pi / 3.
@@ -55,10 +57,12 @@ def unit_output(parameters, folded_length1_, folded_length2_, origin):
     alpha = tf.asin( (a**2 - b**2 + u1**2) / (2*a*u1) )
     beta = tf.asin( (a**2 - b**2 - u1**2) / (2*b*u1) )
 
-    AC_x1 = a*tf.cos(alpha) + c*tf.cos(alpha+gamma)
-    AC_y1 = a*tf.sin(alpha) + c*tf.sin(alpha+gamma)
-    AD_x1 = a*tf.cos(alpha) + d*tf.cos(beta+delta)
-    AD_y1 = a*tf.sin(alpha) + d*tf.sin(beta+delta)
+    AE_x1 = a*tf.cos(alpha)
+    AE_y1 = a*tf.sin(alpha)
+    AC_x1 = AE_x1 + c*tf.cos(alpha+gamma)
+    AC_y1 = AE_y1 + c*tf.sin(alpha+gamma)
+    AD_x1 = AE_x1 + d*tf.cos(beta+delta)
+    AD_y1 = AE_y1 + d*tf.sin(beta+delta)
 
     OA_x0, OA_y0 = tf.split( A0, [1, 1], axis=1 )
     AB_x0, AB_y0 = tf.split(vecAB, [1, 1], axis=1)
@@ -71,18 +75,22 @@ def unit_output(parameters, folded_length1_, folded_length2_, origin):
     OC_y0 = OA_y0 + sin*AC_x1 + cos*AC_y1
     OD_x0 = OA_x0 + cos*AD_x1 - sin*AD_y1
     OD_y0 = OA_y0 + sin*AD_x1 + cos*AD_y1
+    OE_x0 = OA_x0 + cos*AE_x1 - sin*AE_y1
+    OE_y0 = OA_y0 + sin*AE_x1 + cos*AE_y1
 
     temp_debug = tf.concat( [alpha, beta, AC_x1, AC_y1, AD_x1, AD_y1, sin, cos, AB_x0, AB_y0, u1], axis=1 )
     geom = tf.concat( [a, b, c, d, gamma, delta], axis=1 )
     output_coords = tf.concat( [OD_x0, OD_y0, OC_x0, OC_y0], axis=1 )
+    middle_point = tf.concat( [OE_x0, OE_y0], axis=1 )
 
-    return [temp_debug, geom, output_coords]
+    return [temp_debug, geom, output_coords, middle_point]
 
 sess = tf.InteractiveSession()
 
 coords = [None] * (n_units+1)
 geom = [None] * n_units
 temp_debug = [None] * n_units
+middle_point = [None] * n_units
 folded_length = [None] * (n_units+1)
 parameters = [None] * n_units
 
@@ -99,7 +107,8 @@ folded_length[0] = tf.constant(L_init, tf.float32)
 for i in range(n_units):
 
     parameters[i], folded_length[i+1] = init_param(n_params)
-    temp_debug[i], geom[i], coords[i+1] = unit_output(parameters[i], folded_length[i+1], folded_length[i], coords[i] )
+    temp_debug[i], geom[i], coords[i+1], middle_point[i] = \
+        unit_output(parameters[i], folded_length[i+1], folded_length[i], coords[i] )
 
 #loss = tf.losses.mean_squared_error( coords[n_units], output_target )
 sess.run(tf.global_variables_initializer())
@@ -119,5 +128,56 @@ def test():
         print(coords[i+1].eval(feed_dict=feed_dict))
         print('------------------------2------------------------------')
 
+def test_animate():
 
-test()
+    # remember to set n_points = 5
+
+    A_input_ = np.array( [ [0, 0], [0, 0], [0, 0], [0, 0], [0, 0] ], dtype=np.float32 )
+    B_input_ = np.array( [ [0, 1.25], [0, 1.5], [0, 1.75], [0, 2], [0, 2.25] ], dtype=np.float32 )
+    for i in range(n_units):
+        temp_param = tf.constant( [0, 0, 0, 0], dtype=tf.float32, shape=(4,1) )
+        temp_folded_length =  tf.constant( [3], dtype=tf.float32, shape=(1,1) )
+        sess.run(tf.assign( parameters[i], temp_param ))
+        sess.run(tf.assign( folded_length[i+1], temp_folded_length ))
+    feed_dict={A_input: A_input_, B_input: B_input_}
+    coords_ = [None]*(n_points+1)
+    for i in range(n_points+1):
+        coords_[i] = coords[i].eval(feed_dict=feed_dict)
+    middle_point_ = [None]*n_points
+    for i in range(n_points):
+        middle_point_[i] = middle_point[i].eval(feed_dict=feed_dict)
+
+    fig = plt.figure()
+    ax = plt.axes(xlim=(0, 40), ylim=(-20, 20))
+    lines = [None]*n_points*4
+    for i in range(n_points):
+        lines[4*i+0], = ax.plot([], [], 'bo-')
+        lines[4*i+1], = ax.plot([], [], 'ro-')
+        lines[4*i+2], = ax.plot([], [], 'bo-')
+        lines[4*i+3], = ax.plot([], [], 'ro-')
+
+    def init():
+        for i in range(n_points):
+            for j in range(4):
+                lines[4*i+j].set_data([], [])
+        return tuple(lines)
+
+    def animate(i):
+        for j in range(n_units):
+            xA, yA, xB, yB = coords_[j][i,:]
+            xD, yD, xC, yC = coords_[j+1][i,:]
+            xE, yE = middle_point_[j][i,:]
+            lines[4*j+0].set_data( [xA, xE], [yA, yE] )
+            lines[4*j+1].set_data( [xB, xE], [yB, yE] )
+            lines[4*j+2].set_data( [xC, xE], [yC, yE] )
+            lines[4*j+3].set_data( [xD, xE], [yD, yE] )
+            #lines[4*i+0].set_data( [0, i], [0, 1] )
+            #lines[4*i+1].set_data( [0, 2], [2, 0] )
+            #lines[4*i+2].set_data( [1, 2], [1, 1] )
+            #lines[4*i+3].set_data( [2, 1], [2, 2] )
+        return tuple(lines)
+
+    anim = animation.FuncAnimation(fig, animate, init_func=init, frames=n_points, interval=200, blit=True)
+    plt.show()
+
+test_animate()
