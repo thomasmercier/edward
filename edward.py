@@ -6,14 +6,13 @@ import matplotlib.animation as animation
 max_angle = np.pi / 10.
 angle_spreading = 1
 max_folded_length = 5
-folded_length_spreading = 1
-length_ratio_spreading = 0.1
 n_units = 5
 n_params = 5
-n_points = 1
+n_points = 100
 L_init = 3
 
 def normalize( x, min_value, max_value, spreading):
+
     mean_tensor = tf.constant( (max_value+min_value) / 2. , tf.float32)
     ampl_tensor = tf.constant( (max_value-min_value) / 2. , tf.float32)
     spreading_tensor =  tf.reciprocal( tf.constant( spreading , tf.float32))
@@ -23,9 +22,14 @@ def normalize( x, min_value, max_value, spreading):
     return x_normalized2
 
 def init_param(n_params):
-    params = tf.Variable( tf.random_normal([n_params-1, 1]) )
-    L = tf.Variable( tf.random_normal( [1, 1] ) )
-    return [params, L]
+
+    u = tf.truncated_normal( shape=[1, 1], mean=0.5, stddev=0.25)
+    v = tf.truncated_normal( shape=[1, 1], mean=0.5, stddev=0.25)
+    gamma = tf.truncated_normal( shape=[1, 1], mean=0, stddev=max_angle/2.)
+    delta = tf.truncated_normal( shape=[1, 1], mean=0, stddev=max_angle/2.)
+    params = tf.concat( [u, v, gamma, delta], axis=0 )
+    L = tf.truncated_normal( shape=[1, 1], mean=max_folded_length/2., stddev=max_folded_length/4.)
+    return [ tf.Variable(params), tf.Variable(L) ]
 
 def compute_dist(vec):
 
@@ -33,15 +37,9 @@ def compute_dist(vec):
     sumsquare = tf.reduce_sum( square, axis=1 )
     return tf.reshape( tf.sqrt(sumsquare), [-1, 1] )
 
-def unit_output(parameters, folded_length1_, folded_length2_, origin):
+def unit_output(parameters, folded_length1, folded_length2, origin):
 
-    u_, v_, gamma_, delta_ = tf.split(parameters, [1, 1, 1, 1], axis=0)
-    u = normalize( u_, 0., 1., length_ratio_spreading )
-    v = normalize( v_, 0., 1., length_ratio_spreading )
-    gamma = normalize( gamma_, -max_angle, max_angle, angle_spreading )
-    delta = normalize( delta_, -max_angle, max_angle, angle_spreading )
-    folded_length1 = normalize( folded_length1_, 0., max_folded_length, folded_length_spreading )
-    folded_length2 = normalize( folded_length2_, 0., max_folded_length, folded_length_spreading )
+    u, v, gamma, delta = tf.split(parameters, [1, 1, 1, 1], axis=0)
 
     a = u*folded_length1
     b = (1-u)*folded_length1
@@ -76,7 +74,7 @@ def unit_output(parameters, folded_length1_, folded_length2_, origin):
     OE_x0 = OA_x0 + cos*AE_x1 - sin*AE_y1
     OE_y0 = OA_y0 + sin*AE_x1 + cos*AE_y1
 
-    temp_debug = tf.concat( [alpha, beta, AC_x1, AC_y1, AD_x1, AD_y1, sin, cos, AB_x0, AB_y0, u1, u, v, folded_length1, folded_length2], axis=1 )
+    temp_debug = tf.concat( [alpha, beta, AC_x1, AC_y1, AD_x1, AD_y1, sin, cos, AB_x0, AB_y0, u1], axis=1 )
     geom = tf.concat( [a, b, c, d, gamma, delta], axis=1 )
     output_coords = tf.concat( [OD_x0, OD_y0, OC_x0, OC_y0], axis=1 )
     middle_point = tf.concat( [OE_x0, OE_y0], axis=1 )
@@ -109,7 +107,6 @@ for i in range(n_units):
 output, _ = tf.split( coords[n_units], [2, 2], axis=1 )
 loss = tf.losses.mean_squared_error( output_target, output )
 train_step = tf.train.GradientDescentOptimizer(1e-3).minimize(loss)
-
 tf.global_variables_initializer().run()
 
 def test():
@@ -180,7 +177,6 @@ def animate_result():
 
     # remember to set n_points = 100
 
-
     R = 5
     center = [0, -5]
     theta_min = np.pi / 3.
@@ -249,4 +245,5 @@ def animate_result():
     anim = animation.FuncAnimation(fig, animate, init_func=init, frames=n_points, interval=200, blit=True)
     plt.show()
 
-test()
+
+animate_result()
