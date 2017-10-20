@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 max_angle = np.pi / 10.
-angle_spreading = 1
 max_folded_length = 5
 n_units = 5
 n_params = 5
