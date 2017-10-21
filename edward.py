@@ -3,12 +3,12 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
-max_angle = np.pi / 100.
+max_angle = np.pi / 6.
 max_folded_length = 5
 n_units = 5
 n_params = 5
-n_points = 1
-L_init = 3
+n_points = 100
+L_max = tf.constant(5, dtype=tf.float32)
 
 def normalize( x, min_value, max_value, spreading):
 
@@ -20,15 +20,16 @@ def normalize( x, min_value, max_value, spreading):
     x_normalized2 = mean_tensor + tf.scalar_mul(ampl_tensor, x_normalized)
     return x_normalized2
 
-def init_param(n_params):
+def init_param():
 
     u = tf.truncated_normal( shape=[1, 1], mean=0.5, stddev=0.25)
     v = tf.truncated_normal( shape=[1, 1], mean=0.5, stddev=0.25)
-    gamma = tf.truncated_normal( shape=[1, 1], mean=0, stddev=max_angle/2.)
-    delta = tf.truncated_normal( shape=[1, 1], mean=0, stddev=max_angle/2.)
-    params = tf.concat( [u, v, gamma, delta], axis=0 )
-    L = tf.truncated_normal( shape=[1, 1], mean=max_folded_length/2., stddev=max_folded_length/4.)
-    return [ tf.Variable(params), tf.Variable(L) ]
+    gamma = tf.truncated_normal( shape=[1, 1], mean=0.5, stddev=0.25)
+    delta = tf.truncated_normal( shape=[1, 1], mean=0.5, stddev=0.25)
+    L1 = tf.truncated_normal( shape=[1, 1], mean=0.5, stddev=0.25 )
+    L2 = tf.truncated_normal( shape=[1, 1], mean=0.5, stddev=0.25 )
+    params = tf.concat( [u, v, gamma, delta, L1, L2], axis=0 )
+    return tf.Variable(params)
 
 def compute_dist(vec):
 
@@ -36,18 +37,33 @@ def compute_dist(vec):
     sumsquare = tf.reduce_sum( square, axis=1 )
     return tf.reshape( tf.sqrt(sumsquare), [-1, 1] )
 
-def unit_output(parameters, folded_length1, folded_length2, origin):
+def normalize(x, lb, hb):
+    # 0 < x < 1
+    return lb + (hb-lb)*x
 
-    u, v, gamma, delta = tf.split(parameters, [1, 1, 1, 1], axis=0)
+def unit_output(parameters, origin):
 
-    a = u*folded_length1
-    b = (1-u)*folded_length1
-    c = v*folded_length2
-    d = (1-v)*folded_length2
-
+    u_, v, gamma_, delta_, L1, L2 = tf.split(parameters, [1, 1, 1, 1, 1, 1], axis=0)
     A0, B0 = tf.split(origin, [2, 2], axis=1)
     vecAB = B0-A0
+
     u1 = compute_dist(vecAB)
+    min_length_in = tf.reshape( tf.reduce_min(u1, axis=0), [-1, 1] )
+    max_length_in = tf.reshape( tf.reduce_max(u1, axis=0), [-1, 1] )
+
+    folded_length_in = normalize(L1, max_length_in, L_max)
+    length_out = L2 * L_max
+
+    temp = tf.minimum( min_length_in/folded_length_in, tf.ones([1, 1]) )
+    u = normalize( u_, 0.5*(1-temp), 0.5*(1+temp) )
+    gamma = normalize( gamma_, -max_angle, max_angle )
+    delta = normalize( delta_, -max_angle, max_angle )
+
+
+    a = u*folded_length_in
+    b = (1-u)*folded_length_in
+    c = v*length_out
+    d = (1-v)*length_out
 
     alpha = tf.asin( (a**2 - b**2 + u1**2) / (2*a*u1) )
     beta = tf.asin( (a**2 - b**2 - u1**2) / (2*b*u1) )
@@ -64,8 +80,6 @@ def unit_output(parameters, folded_length1, folded_length2, origin):
     cos = AB_y0 / u1
     sin = - AB_x0 / u1
 
-    # DEBUG ----------- sin cos OK
-
     OC_x0 = OA_x0 + cos*AC_x1 - sin*AC_y1
     OC_y0 = OA_y0 + sin*AC_x1 + cos*AC_y1
     OD_x0 = OA_x0 + cos*AD_x1 - sin*AD_y1
@@ -73,8 +87,8 @@ def unit_output(parameters, folded_length1, folded_length2, origin):
     OE_x0 = OA_x0 + cos*AE_x1 - sin*AE_y1
     OE_y0 = OA_y0 + sin*AE_x1 + cos*AE_y1
 
-    temp_debug = tf.concat( [alpha, beta, AC_x1, AC_y1, AD_x1, AD_y1, sin, cos, AB_x0, AB_y0, u1], axis=1 )
-    geom = tf.concat( [a, b, c, d, gamma, delta], axis=1 )
+    temp_debug = tf.concat( [alpha, beta, AC_x1, AC_y1, AD_x1, AD_y1, sin, cos, AB_x0, AB_y0], axis=1 )
+    geom = tf.concat( [min_length_in, max_length_in, folded_length_in, length_out, a, b, c, d, gamma, delta], axis=1 )
     output_coords = tf.concat( [OD_x0, OD_y0, OC_x0, OC_y0], axis=1 )
     middle_point = tf.concat( [OE_x0, OE_y0], axis=1 )
 
@@ -86,7 +100,6 @@ coords = [None] * (n_units+1)
 geom = [None] * n_units
 temp_debug = [None] * n_units
 middle_point = [None] * n_units
-folded_length = [None] * (n_units+1)
 parameters = [None] * n_units
 
 output_target = tf.placeholder( tf.float32, shape=[n_points, 2] )
@@ -95,17 +108,16 @@ A_input = tf.zeros(shape=[n_points, 2])
 
 
 coords[0] = tf.concat( [A_input, B_input], axis=1 )
-folded_length[0] = tf.constant(L_init, tf.float32, shape=[1,1])
 
 for i in range(n_units):
 
-    parameters[i], folded_length[i+1] = init_param(n_params)
+    parameters[i] = init_param()
     temp_debug[i], geom[i], coords[i+1], middle_point[i] = \
-        unit_output(parameters[i], folded_length[i], folded_length[i+1], coords[i] )
+        unit_output( parameters[i], coords[i] )
 
 output, _ = tf.split( coords[n_units], [2, 2], axis=1 )
 loss = tf.losses.mean_squared_error( output_target, output )
-train_step = tf.train.GradientDescentOptimizer(1e-3).minimize(loss)
+train_step = tf.train.AdamOptimizer(1e-2).minimize(loss)
 tf.global_variables_initializer().run()
 
 def test():
@@ -199,20 +211,16 @@ def animate_result():
     feed_dict={A_input: A_input_, B_input: B_input_, output_target:output_target_}
 
     for j in range(n_train):
-        tf.global_variables_initializer()
-        print('j=' + str(j))
-        for i in range(n_train):
-            loss_ = loss.eval(feed_dict=feed_dict)
-            print(loss_)
-            if np.isnan(loss_):
-                break;
-            sess.run(train_step, feed_dict=feed_dict)
+        print(j)
+        loss_ = loss.eval(feed_dict=feed_dict)
+        print(loss_)
+        sess.run(train_step, feed_dict=feed_dict)
 
-    coords_ = [None]*(n_points+1)
-    for i in range(n_points+1):
+    coords_ = [None]*(n_units+1)
+    for i in range(n_units+1):
         coords_[i] = coords[i].eval(feed_dict=feed_dict)
-    middle_point_ = [None]*n_points
-    for i in range(n_points):
+    middle_point_ = [None]*n_units
+    for i in range(n_units):
         middle_point_[i] = middle_point[i].eval(feed_dict=feed_dict)
 
     fig = plt.figure()
@@ -241,8 +249,8 @@ def animate_result():
             lines[4*j+3].set_data( [xD, xE], [yD, yE] )
         return tuple(lines)
 
-    anim = animation.FuncAnimation(fig, animate, init_func=init, frames=n_points, interval=200, blit=True)
+    anim = animation.FuncAnimation(fig, animate, init_func=init, frames=n_points, interval=20, blit=True)
     plt.show()
 
 
-test()
+animate_result()
